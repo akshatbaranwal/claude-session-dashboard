@@ -32,6 +32,28 @@ PORT = 7891
 CLAUDE_DIR = Path.home() / ".claude"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 INDEX_TTL = 30
+LAST_LIVE_FILE = CLAUDE_DIR / "dashboard-last-live.json"
+
+
+# ── Last-live persistence ──────────────────────────────────────────────
+
+_last_live = {}  # session_id -> epoch float
+_last_live_lock = threading.Lock()
+
+
+def _load_last_live():
+    global _last_live
+    try:
+        _last_live = json.loads(LAST_LIVE_FILE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        _last_live = {}
+
+
+def _save_last_live():
+    try:
+        LAST_LIVE_FILE.write_text(json.dumps(_last_live))
+    except OSError:
+        pass
 
 
 # ── Session index (lightweight, no JSONL parsing) ───────────────────────
@@ -353,6 +375,13 @@ def get_active_ids():
             except OSError:
                 pass
 
+    # Record last-live timestamps for all active sessions
+    now = time.time()
+    with _last_live_lock:
+        for sid in active:
+            _last_live[sid] = now
+        _save_last_live()
+
     return active
 
 
@@ -437,8 +466,6 @@ class Handler(BaseHTTPRequestHandler):
             force = qs.get("refresh", [""])[0] == "1"
 
             idx = get_index(force=force)
-            if sort_dir == "asc":
-                idx = list(reversed(idx))
             active = get_active_ids()
             path_options, by_display = _get_path_data()
 
@@ -456,7 +483,12 @@ class Handler(BaseHTTPRequestHandler):
                 if hide_print and d.get("singleTurn"):
                     continue
                 d["active"] = d["id"] in active
+                ll = _last_live.get(d["id"])
+                d["lastLive"] = datetime.fromtimestamp(ll, tz=timezone.utc).isoformat() if ll else None
                 all_parsed.append(d)
+
+            if sort_dir == "live":
+                all_parsed.sort(key=lambda d: _last_live.get(d["id"], 0), reverse=True)
 
             if search:
                 results = []
@@ -518,11 +550,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "claude not found in PATH"}, 500)
                 return
 
-            flag = "--fork" if is_fork else "--resume"
+            fork_flag = " --fork-session" if is_fork else ""
             cmd = (
                 f"cd {shlex.quote(cwd)} && "
-                f"exec {shlex.quote(claude_bin)} {flag} {shlex.quote(sid)} "
-                f"--dangerously-skip-permissions"
+                f"exec {shlex.quote(claude_bin)} --resume {shlex.quote(sid)}"
+                f"{fork_flag} --dangerously-skip-permissions"
             )
             ghostty = _find_binary("ghostty") or "/Applications/Ghostty.app/Contents/MacOS/ghostty"
             try:
@@ -617,7 +649,7 @@ tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg3)}
 tr.is-active td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 
-.col-session{width:12%}.col-path{width:28%}.col-time{width:8%}.col-msgs{width:48%}.col-act{width:4%}
+.col-session{width:8%}.col-path{width:27%}.col-time{width:8%}.col-msgs{width:52%}.col-act{width:5%}
 
 .sid{font-family:var(--mono);font-size:11px;color:var(--t2);cursor:pointer;transition:color var(--tr);display:inline-block}
 .sid:hover{color:var(--blue)}
@@ -651,12 +683,13 @@ tr.expanded td{background:var(--bg3)}
 tr{cursor:pointer}
 tr:hover td{background:var(--bg3)}
 
-.btn-action{border:none;color:#fff;width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:15px;transition:all var(--tr);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.btn-action{border:none;color:#fff;width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:13px;transition:all var(--tr);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
 .btn-resume{background:var(--blued)}
 .btn-resume:hover{background:var(--blue);transform:translateY(-1px)}
-.btn-fork{background:rgba(163,113,247,.18);color:var(--purple);font-size:13px}
+.btn-fork{background:rgba(163,113,247,.18);color:var(--purple)}
 .btn-fork:hover{background:rgba(163,113,247,.32);transform:translateY(-1px)}
-.action-btns{display:flex;gap:4px;align-items:center}
+.action-btns{display:flex;gap:3px;align-items:center;justify-content:flex-end}
+td:last-child{padding:10px 4px 10px 0}
 
 .show-more{text-align:center;padding:14px;background:var(--bg2);border-top:1px solid var(--bd)}
 .btn-more{background:transparent;border:1px solid var(--bd);color:var(--t2);padding:7px 28px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--sans);transition:all var(--tr)}
@@ -859,7 +892,7 @@ function render() {
   let html = '<div class="tbl-wrap"><table><thead><tr>'
     + '<th class="col-session">Session</th>'
     + '<th class="col-path">Path</th>'
-    + '<th class="col-time sortable" onclick="toggleSort()">Last Active <span class="sort-arrow">'+(sortDir==='desc'?'\u25BC':'\u25B2')+'</span></th>'
+    + '<th class="col-time sortable" onclick="toggleSort()">'+(sortDir==='desc'?'Last Active':'Last Live')+' <span class="sort-arrow">'+'\u25BC</span></th>'
     + '<th class="col-msgs">Messages</th>'
     + '<th class="col-act"></th>'
     + '</tr></thead><tbody>';
@@ -895,7 +928,7 @@ function row(s) {
     +'<td>'+sc+'</td><td>'+pc+'</td><td>'+tc+'</td><td>'+mc+'</td>'
     +'<td><div class="action-btns">'
     +'<button class="btn-action btn-resume" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Resume in Ghostty">\u25B6</button>'
-    +'<button class="btn-action btn-fork" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Fork in Ghostty">\u2442</button>'
+    +'<button class="btn-action btn-fork" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Fork in Ghostty"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></svg></button>'
     +'</div></td></tr>';
 }
 
@@ -1024,7 +1057,7 @@ document.addEventListener('keydown', e => {
 });
 
 function showMore() { load(true, false); }
-function toggleSort() { sortDir = sortDir==='desc'?'asc':'desc'; load(false, false); }
+function toggleSort() { sortDir = sortDir==='desc'?'live':'desc'; load(false, false); }
 
 function doRefresh() {
   const btn = document.getElementById('rbtn');
@@ -1073,6 +1106,7 @@ def main():
     parser.add_argument("--host", default=HOST, help=f"Host to bind to (default: {HOST})")
     args = parser.parse_args()
 
+    _load_last_live()
     get_index()
     try:
         server = HTTPServer((args.host, args.port), Handler)
