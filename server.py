@@ -225,6 +225,7 @@ def parse_session(entry):
             if txt:
                 user_turns += 1
 
+    recent_msgs = []  # collect last 4 messages (newest first, reversed later)
     for ln in reversed(_tail_lines(entry["file"], 120)):
         try:
             d = json.loads(ln)
@@ -245,12 +246,18 @@ def parse_session(entry):
             txt = _clean(_extract_text(d.get("message", {}).get("content", "")))
             if txt:
                 last_user = txt[:400]
+        if t in ("user", "assistant") and len(recent_msgs) < 4:
+            txt = _clean(_extract_text(d.get("message", {}).get("content", "")))
+            if txt:
+                role = "you" if t == "user" else "claude"
+                recent_msgs.append({"role": role, "text": txt[:200]})
         if t == "user":
             txt = _extract_text(d.get("message", {}).get("content", ""))
             if txt:
                 user_turns += 1
-        if last_user and last_assistant:
+        if last_user and last_assistant and len(recent_msgs) >= 4:
             break
+    recent_msgs.reverse()
 
     # Deduplicate user_turns (head and tail may overlap for short files)
     # For short files (<80 lines), head covers most/all, tail re-counts.
@@ -269,6 +276,7 @@ def parse_session(entry):
         "forkedFrom": forked_from,
         "lastUser": last_user,
         "lastAssistant": last_assistant,
+        "recentMessages": recent_msgs,
         "sizeKB": round(entry["size"] / 1024),
         "singleTurn": is_single_turn,
     }
@@ -644,14 +652,14 @@ th{padding:8px 12px;font-size:10px;font-weight:600;text-transform:uppercase;lett
 th.sortable{cursor:pointer;transition:color var(--tr)}
 th.sortable:hover{color:var(--t1)}
 .sort-arrow{margin-left:3px;font-size:9px}
-td{padding:10px 12px;border-bottom:1px solid var(--bd);font-size:12px;vertical-align:top;background:var(--bg2);overflow:hidden;word-wrap:break-word}
+td{padding:10px 12px;border-bottom:1px solid var(--bd);font-size:13px;vertical-align:top;background:var(--bg2);overflow:hidden;word-wrap:break-word}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg3)}
 tr.is-active td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 
 .col-session{width:8%}.col-path{width:27%}.col-time{width:8%}.col-msgs{width:52%}.col-act{width:5%}
 
-.sid{font-family:var(--mono);font-size:11px;color:var(--t2);cursor:pointer;transition:color var(--tr);display:inline-block}
+.sid{font-family:var(--mono);font-size:12px;color:var(--t2);cursor:pointer;transition:color var(--tr);display:inline-block}
 .sid:hover{color:var(--blue)}
 .badges{margin-top:3px;display:flex;gap:4px;flex-wrap:wrap}
 .badge{font-size:9px;padding:1px 6px;border-radius:10px;font-family:var(--mono);white-space:nowrap;font-weight:500;letter-spacing:.2px}
@@ -660,13 +668,14 @@ tr.is-active td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 .b-branch{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.15)}
 .ctitle{font-size:11px;color:var(--purple);margin-top:3px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fork-from{font-size:10px;color:var(--orange);margin-top:2px}
-.path-text{font-family:var(--mono);font-size:11px;color:var(--t1);cursor:pointer;transition:color var(--tr);word-break:break-all}
+.path-text{font-family:var(--mono);font-size:12px;color:var(--t1);cursor:pointer;transition:color var(--tr);word-break:break-all}
 .path-text:hover{color:var(--blue)}
 .branch-line{margin-top:3px}
-.time-text{font-size:12px;color:var(--t2);white-space:nowrap}
+.time-text{font-size:13px;color:var(--t2);white-space:nowrap}
 .size-text{font-size:10px;color:var(--t3);margin-top:2px}
-.msg-line{font-size:11px;line-height:1.45;margin-bottom:3px;color:var(--t2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.msg-line{font-size:12px;line-height:1.4;margin-bottom:2px;color:var(--t2);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;word-break:break-word}
 .msg-line:last-child{margin-bottom:0}
+.msg-preview{max-height:76px;overflow:hidden}
 .msg-l{font-weight:600;font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-right:4px}
 .ml-you{color:var(--blue)}.ml-cl{color:var(--purple)}
 /* Expanded row */
@@ -919,9 +928,14 @@ function row(s) {
   let tc = '<div class="time-text">'+relTime(s.mtime)+'</div><div class="size-text">'+s.sizeKB+' KB</div>';
 
   let mc = '<div class="msg-preview" id="preview-'+s.id+'">';
-  if (s.lastUser) mc += '<div class="msg-line"><span class="msg-l ml-you">You</span>'+esc(trunc(s.lastUser,150))+'</div>';
-  if (s.lastAssistant) mc += '<div class="msg-line"><span class="msg-l ml-cl">Claude</span>'+esc(trunc(s.lastAssistant,150))+'</div>';
-  if (!s.lastUser && !s.lastAssistant) mc += '<span style="color:var(--t3);font-size:11px">No messages</span>';
+  if (s.recentMessages && s.recentMessages.length) {
+    s.recentMessages.forEach(function(m) {
+      var lbl = m.role==='you' ? '<span class="msg-l ml-you">You</span>' : '<span class="msg-l ml-cl">Claude</span>';
+      mc += '<div class="msg-line">'+lbl+esc(m.text)+'</div>';
+    });
+  } else {
+    mc += '<span style="color:var(--t3);font-size:11px">No messages</span>';
+  }
   mc += '</div><div class="chat-log" id="chatlog-'+s.id+'" style="display:none"></div>';
 
   return '<tr data-sid="'+attr(s.id)+'" class="'+(s.active?'is-active':'')+'">'
