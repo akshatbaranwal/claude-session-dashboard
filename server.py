@@ -502,7 +502,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/launch":
+        if parsed.path in ("/api/launch", "/api/fork"):
+            is_fork = parsed.path == "/api/fork"
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
             sid = body.get("sessionId", "")
@@ -517,9 +518,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "claude not found in PATH"}, 500)
                 return
 
+            flag = "--fork" if is_fork else "--resume"
             cmd = (
                 f"cd {shlex.quote(cwd)} && "
-                f"exec {shlex.quote(claude_bin)} --resume {shlex.quote(sid)} "
+                f"exec {shlex.quote(claude_bin)} {flag} {shlex.quote(sid)} "
                 f"--dangerously-skip-permissions"
             )
             ghostty = _find_binary("ghostty") or "/Applications/Ghostty.app/Contents/MacOS/ghostty"
@@ -649,9 +651,12 @@ tr.expanded td{background:var(--bg3)}
 tr{cursor:pointer}
 tr:hover td{background:var(--bg3)}
 
-.btn-resume{background:var(--blued);border:none;color:#fff;width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:15px;transition:all var(--tr);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
-.btn-resume:hover{background:var(--blue);transform:scale(1.1)}
+.btn-action{border:none;color:#fff;width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:15px;transition:all var(--tr);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.btn-resume{background:var(--blued)}
 .btn-resume:hover{background:var(--blue);transform:translateY(-1px)}
+.btn-fork{background:rgba(163,113,247,.18);color:var(--purple);font-size:13px}
+.btn-fork:hover{background:rgba(163,113,247,.32);transform:translateY(-1px)}
+.action-btns{display:flex;gap:4px;align-items:center}
 
 .show-more{text-align:center;padding:14px;background:var(--bg2);border-top:1px solid var(--bd)}
 .btn-more{background:transparent;border:1px solid var(--bd);color:var(--t2);padding:7px 28px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--sans);transition:all var(--tr)}
@@ -744,6 +749,17 @@ async function launch(id, cwd) {
     });
     const d = await r.json();
     d.ok ? toast('Launched in Ghostty') : toast(d.error||'Launch failed','err');
+  } catch(e) { toast('Failed: '+e.message,'err'); }
+}
+
+async function fork(id, cwd) {
+  try {
+    const r = await fetch('/api/fork', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({sessionId:id, cwd})
+    });
+    const d = await r.json();
+    d.ok ? toast('Forked in Ghostty') : toast(d.error||'Fork failed','err');
   } catch(e) { toast('Failed: '+e.message,'err'); }
 }
 
@@ -877,7 +893,10 @@ function row(s) {
 
   return '<tr data-sid="'+attr(s.id)+'" class="'+(s.active?'is-active':'')+'">'
     +'<td>'+sc+'</td><td>'+pc+'</td><td>'+tc+'</td><td>'+mc+'</td>'
-    +'<td><button class="btn-resume" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Resume in Ghostty">\u25B6</button></td></tr>';
+    +'<td><div class="action-btns">'
+    +'<button class="btn-action btn-resume" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Resume in Ghostty">\u25B6</button>'
+    +'<button class="btn-action btn-fork" data-id="'+attr(s.id)+'" data-cwd="'+attr(s.cwd)+'" title="Fork in Ghostty">\u2442</button>'
+    +'</div></td></tr>';
 }
 
 function updateStats() {
@@ -968,6 +987,8 @@ document.addEventListener('wheel', e => {
 document.addEventListener('click', e => {
   const resume = e.target.closest('.btn-resume');
   if (resume) { e.stopPropagation(); launch(resume.dataset.id, resume.dataset.cwd); return; }
+  const forkBtn = e.target.closest('.btn-fork');
+  if (forkBtn) { e.stopPropagation(); fork(forkBtn.dataset.id, forkBtn.dataset.cwd); return; }
   const sidEl = e.target.closest('.sid');
   if (sidEl && sidEl.dataset.copy) {
     e.stopPropagation();
