@@ -4,7 +4,7 @@ A localhost web dashboard for browsing, searching, and resuming [Claude Code](ht
 
 If you use Claude Code across many projects, worktrees, and branches, you've probably lost track of sessions. This dashboard scans your local `~/.claude/projects/` directory and presents all your sessions in a filterable, sortable table — with one-click resume.
 
-![screenshot](https://github.com/user-attachments/assets/placeholder)
+![screenshot](screenshot.png)
 
 ## Features
 
