@@ -313,6 +313,8 @@ def get_active_ids():
     sdir = CLAUDE_DIR / "sessions"
     if not sdir.exists():
         return active
+    # Collect live sessions; track unmatched ones (sessionId has no JSONL)
+    unmatched = []  # (sessionId, cwd, startedAt) for resumed sessions
     for f in sdir.glob("*.json"):
         try:
             data = json.loads(f.read_text())
@@ -321,10 +323,36 @@ def get_active_ids():
             os.kill(pid, 0)
             if sid:
                 active.add(sid)
+                cwd = data.get("cwd", "")
+                started = data.get("startedAt", 0) / 1000  # ms → s
+                unmatched.append((sid, cwd, started))
         except (ProcessLookupError, ValueError, json.JSONDecodeError, OSError):
             pass
         except PermissionError:
             active.add(data.get("sessionId", ""))
+
+    # For resumed sessions (`claude -c`), the sessions/*.json has a new
+    # sessionId but messages are written to the original JSONL under the
+    # original sessionId. Resolve these by finding recently-modified JSONLs
+    # in the same project directory.
+    for sid, cwd, started in unmatched:
+        proj_name = cwd.replace("/", "-")
+        proj_dir = PROJECTS_DIR / proj_name
+        if not proj_dir.is_dir():
+            continue
+        # Skip if this sessionId already has a matching JSONL
+        if (proj_dir / f"{sid}.jsonl").exists():
+            continue
+        # Find JSONLs modified after this session started, not already claimed
+        for jf in proj_dir.glob("*.jsonl"):
+            if jf.stem in active:
+                continue  # already claimed by a direct match
+            try:
+                if jf.stat().st_mtime >= started:
+                    active.add(jf.stem)
+            except OSError:
+                pass
+
     return active
 
 
@@ -670,7 +698,7 @@ tr:hover td{background:var(--bg3)}
 <div class="toast-wrap" id="toasts"></div>
 
 <script>
-const PAGE = 10;
+const PAGE = 50;
 let sessions = [];
 let total = 0;
 let hasMore = false;
