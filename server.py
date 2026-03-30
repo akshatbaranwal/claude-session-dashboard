@@ -328,6 +328,32 @@ def get_active_ids():
     return active
 
 
+# ── Binary resolution ───────────────────────────────────────────────────
+
+
+def _find_binary(name):
+    """Resolve a binary's absolute path using a login shell (picks up full PATH)."""
+    try:
+        result = subprocess.run(
+            ["/bin/zsh", "-lc", f"command -v {name}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        path = result.stdout.strip()
+        if path and os.path.isfile(path):
+            return path
+    except Exception:
+        pass
+    # Fallback: common locations
+    for p in [
+        os.path.expanduser(f"~/.local/bin/{name}"),
+        f"/usr/local/bin/{name}",
+        f"/opt/homebrew/bin/{name}",
+    ]:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
 # ── Cache warming ───────────────────────────────────────────────────────
 
 
@@ -458,17 +484,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Missing sessionId"}, 400)
                 return
 
+            claude_bin = _find_binary("claude")
+            if not claude_bin:
+                self._json({"error": "claude not found in PATH"}, 500)
+                return
+
             cmd = (
                 f"cd {shlex.quote(cwd)} && "
-                f"exec claude --resume {shlex.quote(sid)} "
+                f"exec {shlex.quote(claude_bin)} --resume {shlex.quote(sid)} "
                 f"--dangerously-skip-permissions"
             )
-            ghostty = "/Applications/Ghostty.app/Contents/MacOS/ghostty"
-            if not os.path.exists(ghostty):
-                ghostty = "ghostty"
+            ghostty = _find_binary("ghostty") or "/Applications/Ghostty.app/Contents/MacOS/ghostty"
             try:
                 subprocess.Popen(
-                    [ghostty, "-e", "/bin/zsh", "-l", "-c", cmd],
+                    [ghostty, "-e", "/bin/zsh", "-c", cmd],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
