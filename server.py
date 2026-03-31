@@ -603,7 +603,7 @@ HTML = r"""<!DOCTYPE html>
   --r:8px;--tr:150ms ease;
 }
 body{font-family:var(--sans);background:var(--bg0);color:var(--t1);line-height:1.5;min-height:100vh}
-.container{margin:0;padding:24px 28px}
+.container{margin:0;padding:12px 8px}
 
 header{margin-bottom:16px}
 .header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
@@ -645,19 +645,19 @@ header{margin-bottom:16px}
 .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
 .dot-g{background:var(--green)}.dot-b{background:var(--blue)}
 
-.tbl-wrap{border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;margin-top:12px}
+.tbl-wrap{border:1px solid var(--bd);border-radius:0;overflow:hidden;margin-top:8px}
 table{width:100%;border-collapse:collapse;table-layout:fixed}
 thead{background:var(--bg1)}
-th{padding:8px 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);text-align:left;border-bottom:1px solid var(--bd);white-space:nowrap;user-select:none}
+th{padding:6px 6px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);text-align:left;border-bottom:1px solid var(--bd);white-space:nowrap;user-select:none}
 th.sortable{cursor:pointer;transition:color var(--tr)}
 th.sortable:hover{color:var(--t1)}
 .sort-arrow{margin-left:3px;font-size:9px}
-td{padding:10px 12px;border-bottom:1px solid var(--bd);font-size:13px;vertical-align:top;background:var(--bg2);overflow:hidden;word-wrap:break-word}
+td{padding:8px 6px;border-bottom:1px solid var(--bd);font-size:13px;vertical-align:top;background:var(--bg2);overflow:hidden;word-wrap:break-word}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--bg3)}
 tr.is-active td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 
-.col-session{width:8%}.col-path{width:27%}.col-time{width:8%}.col-msgs{width:52%}.col-act{width:5%}
+.col-session{width:5%}.col-path{width:20%}.col-time{width:7%}.col-msgs{width:64%}.col-act{width:4%}
 
 .sid{font-family:var(--mono);font-size:12px;color:var(--t2);cursor:pointer;transition:color var(--tr);display:inline-block}
 .sid:hover{color:var(--blue)}
@@ -668,7 +668,7 @@ tr.is-active td:first-child{box-shadow:inset 3px 0 0 var(--green)}
 .b-branch{background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.15)}
 .ctitle{font-size:11px;color:var(--purple);margin-top:3px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fork-from{font-size:10px;color:var(--orange);margin-top:2px}
-.path-text{font-family:var(--mono);font-size:12px;color:var(--t1);cursor:pointer;transition:color var(--tr);word-break:break-all}
+.path-text{font-family:var(--mono);font-size:12px;color:var(--t1);cursor:pointer;transition:color var(--tr);word-break:break-word;overflow-wrap:break-word}
 .path-text:hover{color:var(--blue)}
 .branch-line{margin-top:3px}
 .time-text{font-size:13px;color:var(--t2);white-space:nowrap}
@@ -697,8 +697,8 @@ tr:hover td{background:var(--bg3)}
 .btn-resume:hover{background:var(--blue);transform:translateY(-1px)}
 .btn-fork{background:rgba(163,113,247,.18);color:var(--purple)}
 .btn-fork:hover{background:rgba(163,113,247,.32);transform:translateY(-1px)}
-.action-btns{display:flex;gap:3px;align-items:center;justify-content:flex-end}
-td:last-child{padding:10px 4px 10px 0}
+.action-btns{display:flex;flex-direction:column;gap:3px;align-items:center}
+td:last-child{padding:8px 4px 8px 0}
 
 .show-more{text-align:center;padding:14px;background:var(--bg2);border-top:1px solid var(--bd)}
 .btn-more{background:transparent;border:1px solid var(--bd);color:var(--t2);padding:7px 28px;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--sans);transition:all var(--tr)}
@@ -914,13 +914,13 @@ function render() {
 }
 
 function row(s) {
-  const sid = s.id.substring(0,8)+'\u2026'+s.id.slice(-4);
+  const sid = s.id.slice(-4);
   let badges = '';
   if (s.active) badges += '<span class="badge b-active">\u25cf live</span>';
   if (s.forkedFrom) badges += '<span class="badge b-fork">\u2442 fork</span>';
   let sc = '<span class="sid" data-copy="'+attr(s.id)+'" title="Click to copy">'+sid+'</span>';
   if (badges) sc += '<div class="badges">'+badges+'</div>';
-  if (s.forkedFrom) sc += '<div class="fork-from">\u21b3 '+s.forkedFrom.substring(0,12)+'</div>';
+  if (s.forkedFrom) sc += '<div class="fork-from">\u21b3 '+s.forkedFrom.slice(-4)+'</div>';
 
   let pc = '<div class="path-text" data-display="'+attr(s.displayName)+'" title="'+attr(s.cwd)+'">'+esc(s.displayName)+'</div>';
   if (s.gitBranch) pc += '<div class="branch-line"><span class="badge b-branch">'+esc(s.gitBranch)+'</span></div>';
